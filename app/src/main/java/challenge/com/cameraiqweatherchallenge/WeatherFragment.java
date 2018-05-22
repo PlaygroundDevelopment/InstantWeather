@@ -1,7 +1,6 @@
 package challenge.com.cameraiqweatherchallenge;
 
 import android.annotation.SuppressLint;
-import android.content.Context;
 import android.content.SharedPreferences;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
@@ -16,30 +15,23 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.ImageView;
 import android.widget.TextView;
-import android.widget.Toast;
 
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.BufferedReader;
-import java.io.BufferedWriter;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
-import java.io.OutputStream;
-import java.io.OutputStreamWriter;
-import java.io.UnsupportedEncodingException;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.net.URLEncoder;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Locale;
-import java.util.Map;
 
 import challenge.com.cameraiqweatherchallenge.Models.Day;
 
@@ -62,9 +54,14 @@ public class WeatherFragment extends Fragment {
 
     private String cityName;
 
+    Day curDay;
+
     ArrayList<Day> forecast;
 
     RecyclerView recyclerView;
+
+    ImageView currentIcon;
+    TextView currentTemp;
 
     /**
      * Mandatory empty constructor for the fragment manager to instantiate the
@@ -74,8 +71,6 @@ public class WeatherFragment extends Fragment {
 
     }
 
-    // TODO: Customize parameter initialization
-    @SuppressWarnings("unused")
     public static WeatherFragment newInstance(String cityName) {
         WeatherFragment fragment = new WeatherFragment();
         Bundle args = new Bundle();
@@ -97,34 +92,36 @@ public class WeatherFragment extends Fragment {
     public View onCreateView(LayoutInflater inflater, ViewGroup container,
                              Bundle savedInstanceState) {
         View view = inflater.inflate(R.layout.fragment_weather, container, false);
-        //TODO: get current forecast
+        //get current forecast
         forecast = new ArrayList<>();
         isCel = true;
-        TextView cityNameView = (TextView) view.findViewById(R.id.cityName);
+        TextView cityNameView = view.findViewById(R.id.cityName);
         cityNameView.setText(cityName);
-        TextView metricView = (TextView) view.findViewById(R.id.metric);
+        TextView metricView = view.findViewById(R.id.metric);
         metricView.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
                 for(Day day : forecast){
                     day.convert();
                 }
+                curDay.convert();
                 recyclerView.getAdapter().notifyDataSetChanged();
                 if(isCel){
                     ((TextView) view).setText("Farenheit");
+                    currentTemp.setText(curDay.getTemp());
                 }else {
                     ((TextView) view).setText("Celcius");
+                    currentTemp.setText(curDay.getTemp());
                 }
                 isCel = !isCel;
             }
         });
 
-        recyclerView = (RecyclerView) view.findViewById(R.id.list);
+        recyclerView = view.findViewById(R.id.list);
         recyclerView.setLayoutManager(new LinearLayoutManager(getContext()));
 
         Calendar today = Calendar.getInstance();
         int date = today.get(Calendar.DATE);
-
 
         //fetch the forecast array from local storage, if empty or outdated load from API
         SharedPreferences savedWeatherData = getContext().getSharedPreferences(WEATHER_DATA, 0);
@@ -137,11 +134,10 @@ public class WeatherFragment extends Fragment {
                 JSONArray foreCastDataArray = cityWeatherData.getJSONArray("list");
                 for(int i = 0; i < foreCastDataArray.length(); i++){
                     JSONObject dayObject = foreCastDataArray.getJSONObject(i);
-                    today.add(Calendar.DAY_OF_YEAR,i );
                     SimpleDateFormat sdf = new SimpleDateFormat("EEEE", Locale.US);
                     Date d = today.getTime();
                     String dayOfTheWeek = sdf.format(d);
-                    SimpleDateFormat dayDateFormat = new SimpleDateFormat("MM-DD-YYYY", Locale.US);
+                    SimpleDateFormat dayDateFormat = new SimpleDateFormat("MM/dd/yyyy", Locale.US);
                     String dayDate = dayDateFormat.format(d);
                     //get day temperature from temp array
                     JSONObject tempObject = dayObject.getJSONObject("temp");
@@ -152,19 +148,26 @@ public class WeatherFragment extends Fragment {
                     String icon  = weatherObject.getString("icon");
                     Day day = new Day(dayDate,dayOfTheWeek,icon,temp);
                     forecast.add(day);
+                    today.add(Calendar.DAY_OF_YEAR,1 );
                 }
             } catch(JSONException j){
                 Log.e("JSON Error", j.getMessage());
             }
         } else {
-            loadForecast();
+            new LoadForecastTask().execute();
         }
 
         String curWeatherDataJsonText = savedWeatherData.getString("cur"+cityName+date, null);
-        ImageView currentIcon = (ImageView) view.findViewById(R.id.currentIcon);
-        TextView currentTemp = (TextView) view.findViewById(R.id.currentTemp);
+        currentIcon = view.findViewById(R.id.currentIcon);
+        currentTemp = view.findViewById(R.id.currentTemp);
+
         if(curWeatherDataJsonText != null){
             try {
+                SimpleDateFormat sdf = new SimpleDateFormat("EEEE", Locale.US);
+                Date d = today.getTime();
+                String dayOfTheWeek = sdf.format(d);
+                SimpleDateFormat dayDateFormat = new SimpleDateFormat("MM/dd/yyyy", Locale.US);
+                String dayDate = dayDateFormat.format(d);
                 JSONObject curCityWeatherData = new JSONObject(curWeatherDataJsonText);
                 JSONObject main = curCityWeatherData.getJSONObject("main");
                 String temp = main.getString("temp");
@@ -172,14 +175,15 @@ public class WeatherFragment extends Fragment {
                 JSONObject weatherObj = weatherArray.getJSONObject(0);
                 String icon = weatherObj.getString("icon");
 
-                currentTemp.setText(temp);
+                curDay = new Day(dayDate,dayOfTheWeek,icon,temp);
+                currentTemp.setText(curDay.getTemp());
                 new DownloadImageTask(currentIcon).execute(ICON_URI+icon+".png");
 
             } catch(JSONException j){
                 Log.e("JSON Error", j.getMessage());
             }
         }else {
-            loadCurrent(currentIcon, currentTemp);
+            new LoadCurrentTask().execute();
         }
 
         recyclerView.setAdapter(new MyWeatherRecyclerViewAdapter(forecast));
@@ -188,115 +192,116 @@ public class WeatherFragment extends Fragment {
     }
 
 
-    @Override
-    public void onAttach(Context context) {
-        super.onAttach(context);
+    //load current data from network
+    @SuppressLint("StaticFieldLeak")
+    private class LoadCurrentTask extends AsyncTask<Void, Void, String> {
 
-    }
+        @Override
+        protected String doInBackground(Void ... voids) {
+            Calendar today = Calendar.getInstance();
+            int date = today.get(Calendar.DATE);
+            //TODO: fetch the forecast array from local storage, if empty or outdated load from API
+            SharedPreferences savedWeatherData = getContext().getSharedPreferences(WEATHER_DATA, 0);
+            //fetch data from server
+            //
 
-    @Override
-    public void onDetach() {
-        super.onDetach();
-    }
+            final String weatherDataResponse = sendGetRequest(CUR_REQUEST_URL+cityName);
+            if(!weatherDataResponse.isEmpty()){
+                savedWeatherData.edit().putString("cur"+cityName+date, weatherDataResponse).apply();
+                return weatherDataResponse;
+            }
+            return null;
+        }
 
-    private void loadCurrent(final ImageView currentIcon, final TextView currentTemp) {
-        Thread loadThread = new Thread(new Runnable() {
-            @Override
-            public void run() {
-                Calendar today = Calendar.getInstance();
-                int date = today.get(Calendar.DATE);
-                //TODO: fetch the forecast array from local storage, if empty or outdated load from API
-                SharedPreferences savedWeatherData = getContext().getSharedPreferences(WEATHER_DATA, 0);
-                //fetch data from server
-                //
+        @Override
+        protected void onPostExecute(String weatherDataResponse) {
+            super.onPostExecute(weatherDataResponse);
+            if(weatherDataResponse != null) {
+                try {
+                    Calendar today = Calendar.getInstance();
+                    SimpleDateFormat sdf = new SimpleDateFormat("EEEE", Locale.US);
+                    Date d = today.getTime();
+                    String dayOfTheWeek = sdf.format(d);
+                    SimpleDateFormat dayDateFormat = new SimpleDateFormat("MM/dd/yyyy", Locale.US);
+                    String dayDate = dayDateFormat.format(d);
+                    Log.d("CURRENT DATA JSON", weatherDataResponse);
+                    JSONObject curCityWeatherData = new JSONObject(weatherDataResponse);
+                    JSONObject main = curCityWeatherData.getJSONObject("main");
+                    String temp = main.getString("temp");
+                    JSONArray weatherArray = curCityWeatherData.getJSONArray("weather");
+                    JSONObject weatherObj = weatherArray.getJSONObject(0);
+                    String icon = weatherObj.getString("icon");
 
-                HashMap<String, String> data = new HashMap<>();
-                final String weatherDataResponse = sendGetRequest(CUR_REQUEST_URL+cityName, data);
-                if(!weatherDataResponse.isEmpty()){
-                    savedWeatherData.edit().putString("cur"+cityName+date, weatherDataResponse).apply();
-                    getActivity().runOnUiThread(new Runnable() {
-                        @Override
-                        public void run() {
-                            try {
-                                Log.d("CURRENT DATA JSON", weatherDataResponse);
-                                JSONObject curCityWeatherData = new JSONObject(weatherDataResponse);
-                                JSONObject main = curCityWeatherData.getJSONObject("main");
-                                String temp = main.getString("temp");
-                                JSONArray weatherArray = curCityWeatherData.getJSONArray("weather");
-                                JSONObject weatherObj = weatherArray.getJSONObject(0);
-                                String icon = weatherObj.getString("icon");
+                    curDay = new Day(dayDate, dayOfTheWeek, icon, temp);
+                    currentTemp.setText(curDay.getTemp());
+                    new DownloadImageTask(currentIcon).execute(ICON_URI + icon + ".png");
 
-                                currentTemp.setText(temp);
-                                new DownloadImageTask(currentIcon).execute(ICON_URI+icon+".png");
-                                Log.d("GET_RESPONSE_LIST", curCityWeatherData.getString("list"));
-
-                            } catch(JSONException j){
-                                Log.e("JSON Error", j.getMessage());
-                                j.printStackTrace();
-                            }
-                        }
-                    });
+                } catch (JSONException j) {
+                    Log.e("JSON Error", j.getMessage());
+                    j.printStackTrace();
                 }
             }
-        });
-        loadThread.start();
+        }
     }
 
-    private void loadForecast(){
-        Thread loadThread = new Thread(new Runnable() {
-            @Override
-            public void run() {
-                forecast.clear();
-                Calendar today = Calendar.getInstance();
-                int date = today.get(Calendar.DATE);
-                //TODO: fetch the forecast array from local storage, if empty or outdated load from API
-                SharedPreferences savedWeatherData = getContext().getSharedPreferences(WEATHER_DATA, 0);
-                //fetch data from server
+    //Load forecast data from network
+    @SuppressLint("StaticFieldLeak")
+    private class LoadForecastTask extends AsyncTask<Void, Void, Boolean> {
 
-                HashMap<String, String> data = new HashMap<>();
-                String weatherDataResponse = sendGetRequest(REQUEST_URL+cityName, data);
-                if(!weatherDataResponse.isEmpty()){
-                    try {
-                        Log.d("GET_RESPONSE", weatherDataResponse);
-                        JSONObject cityWeatherData = new JSONObject(weatherDataResponse);
-                        savedWeatherData.edit().putString(cityName+date,weatherDataResponse ).apply();
-                        JSONArray foreCastDataArray = cityWeatherData.getJSONArray("list");
-                        for(int i = 0; i < foreCastDataArray.length(); i++){
-                            JSONObject dayObject = foreCastDataArray.getJSONObject(i);
-                            today.add(Calendar.DAY_OF_YEAR,i );
-                            SimpleDateFormat sdf = new SimpleDateFormat("EEEE", Locale.US);
-                            Date d = today.getTime();
-                            String dayOfTheWeek = sdf.format(d);
-                            SimpleDateFormat dayDateFormat = new SimpleDateFormat("MM-DD-YYYY", Locale.US);
-                            String dayDate = dayDateFormat.format(d);
-                            //get day temperature from temp array
-                            JSONObject tempObject = dayObject.getJSONObject("temp");
-                            String temp = tempObject.getString("day");
-                            //get icon from weather array
-                            JSONArray weatherArray = dayObject.getJSONArray("weather");
-                            JSONObject weatherObject = weatherArray.getJSONObject(0);
-                            String icon  = weatherObject.getString("icon");
-                            Day day = new Day(dayDate,dayOfTheWeek,icon,temp);
-                            forecast.add(day);
-                        }
-                    } catch(JSONException j){
-                        Log.e("JSON Error2", j.toString());
-                        j.printStackTrace();
+        @Override
+        protected Boolean doInBackground(Void ... voids) {
+            forecast.clear();
+            Calendar today = Calendar.getInstance();
+            int date = today.get(Calendar.DATE);
+            //TODO: fetch the forecast array from local storage, if empty or outdated load from API
+            SharedPreferences savedWeatherData = getContext().getSharedPreferences(WEATHER_DATA, 0);
+            //fetch data from server
+
+            HashMap<String, String> data = new HashMap<>();
+            String weatherDataResponse = sendGetRequest(REQUEST_URL+cityName);
+            if(!weatherDataResponse.isEmpty()){
+                try {
+                    Log.d("GET_RESPONSE", weatherDataResponse);
+                    JSONObject cityWeatherData = new JSONObject(weatherDataResponse);
+                    savedWeatherData.edit().putString(cityName+date,weatherDataResponse ).apply();
+                    JSONArray foreCastDataArray = cityWeatherData.getJSONArray("list");
+                    for(int i = 0; i < foreCastDataArray.length(); i++){
+                        JSONObject dayObject = foreCastDataArray.getJSONObject(i);
+                        SimpleDateFormat sdf = new SimpleDateFormat("EEEE", Locale.US);
+                        Date d = today.getTime();
+                        String dayOfTheWeek = sdf.format(d);
+                        SimpleDateFormat dayDateFormat = new SimpleDateFormat("MM/dd/yyyy", Locale.US);
+                        String dayDate = dayDateFormat.format(d);
+                        //get day temperature from temp array
+                        JSONObject tempObject = dayObject.getJSONObject("temp");
+                        String temp = tempObject.getString("day");
+                        //get icon from weather array
+                        JSONArray weatherArray = dayObject.getJSONArray("weather");
+                        JSONObject weatherObject = weatherArray.getJSONObject(0);
+                        String icon  = weatherObject.getString("icon");
+                        Day day = new Day(dayDate,dayOfTheWeek,icon,temp);
+                        forecast.add(day);
+                        today.add(Calendar.DAY_OF_YEAR,1 );
                     }
+                    return true;
+                } catch(JSONException j){
+                    Log.e("JSON Error2", j.toString());
+                    j.printStackTrace();
                 }
-                //refresh list view
-                getActivity().runOnUiThread(new Runnable() {
-                    @Override
-                    public void run() {
-                        recyclerView.getAdapter().notifyDataSetChanged();
-                    }
-                });
             }
-        });
-        loadThread.start();
+            return false;
+        }
+
+        @Override
+        protected void onPostExecute(Boolean valid) {
+            super.onPostExecute(valid);
+            if(valid){
+                recyclerView.getAdapter().notifyDataSetChanged();
+            }
+        }
     }
 
-    public String sendGetRequest(String requestURL, HashMap<String, String> postDataParams){
+    public String sendGetRequest(String requestURL){
         URL url;
         String response = "";
         try {
@@ -309,14 +314,6 @@ public class WeatherFragment extends Fragment {
             urlConnection.setDoOutput(true);
             urlConnection.connect();
 
-            OutputStream outputStream = urlConnection.getOutputStream();
-            BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(outputStream, "UTF-8"));
-            String dataString = getDataString(postDataParams);
-            Log.d("DATA_STRING" , dataString);
-            writer.write(dataString);
-            writer.flush();
-            writer.close();
-            outputStream.close();
             int responseCode = urlConnection.getResponseCode();
 
             if(responseCode == HttpURLConnection.HTTP_OK){
@@ -331,24 +328,6 @@ public class WeatherFragment extends Fragment {
         }
         //Log.d("RESPONSE", response);
         return response;
-    }
-
-    private String getDataString(HashMap<String, String> params) throws UnsupportedEncodingException {
-        StringBuilder result = new StringBuilder();
-        boolean first = true;
-        for(Map.Entry<String, String> entry : params.entrySet()){
-            if(first){
-                first = false;
-            }else{
-                result.append("&");
-            }
-
-            result.append(URLEncoder.encode(entry.getKey(), "UTF-8"));
-            result.append("=");
-            result.append(URLEncoder.encode(entry.getValue(), "UTF-8"));
-        }
-
-        return result.toString();
     }
 
     //Load image icon asynchronously -- can find a safer way with more time
@@ -376,5 +355,9 @@ public class WeatherFragment extends Fragment {
         protected void onPostExecute(Bitmap result) {
             bmImage.setImageBitmap(result);
         }
+    }
+
+    public String getCityName(){
+        return cityName;
     }
 }

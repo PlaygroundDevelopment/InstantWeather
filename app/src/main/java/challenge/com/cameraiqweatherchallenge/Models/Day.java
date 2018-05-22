@@ -31,9 +31,9 @@ public class Day {
         double tempVal = Double.parseDouble(temp);
         if(!isCel){
             String tempString = String.valueOf(tempVal * 1.8 + 32);
-            return tempString.substring(0, tempString.indexOf(".")+2);
+            return tempString.substring(0, tempString.indexOf(".")+2)+"℉";
         }
-        return temp;
+        return temp+"℃";
     }
 
     public String getWeekDay() {

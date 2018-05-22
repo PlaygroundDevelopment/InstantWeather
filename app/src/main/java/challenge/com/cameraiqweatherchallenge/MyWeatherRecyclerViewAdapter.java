@@ -84,10 +84,10 @@ public class MyWeatherRecyclerViewAdapter extends RecyclerView.Adapter<MyWeather
         ViewHolder(View view) {
             super(view);
             mView = view;
-            dateField = (TextView) view.findViewById(R.id.day_item_date);
-            dayField = (TextView) view.findViewById(R.id.day_item_name);
-            weatherIcon = (ImageView) view.findViewById(R.id.day_item_icon);
-            tempField = (TextView) view.findViewById(R.id.day_item_temp);
+            dateField = view.findViewById(R.id.day_item_date);
+            dayField = view.findViewById(R.id.day_item_name);
+            weatherIcon = view.findViewById(R.id.day_item_icon);
+            tempField = view.findViewById(R.id.day_item_temp);
 
         }
 
