@@ -1,7 +1,7 @@
 # InstantWeather
 
 Fully functional weather android application featuring:
-  City weather current tempertature,
+  City weather current temperature,
   City Weather 5 day forecast,
   Add Cities,
   Page through added cities,
